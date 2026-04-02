@@ -14,9 +14,23 @@ Minimal, production-like scaffold for a CLI AI assistant that works on project f
 ## Layout
 
 - `src/project_assistant/`: CLI, config, orchestration, prompts, diffing, logging
-- `src/project_assistant_mcp/`: MCP file server scaffold
+- `src/project_assistant_mcp/`: MCP file server and file-safety helpers
 - `examples/`: sample goals and environment configuration
 - `tests/`: lightweight smoke tests
+
+## MCP Tools
+
+The FastMCP server exposes these project-root-confined tools:
+
+- `list_project_files`: list readable text files under the configured root with optional include/exclude globs
+- `read_file`: read one UTF-8 text file with explicit truncation metadata
+- `read_files`: read multiple UTF-8 text files in one call
+- `search_text`: search plain text or regex patterns across matching files and return line numbers plus snippets
+- `write_file`: create or overwrite one UTF-8 text file inside the project root
+- `replace_in_file`: replace exact text in an existing file with occurrence checks and diff output
+- `preview_diff`: generate a unified diff for a proposed file update without writing it
+
+All file operations are restricted to `ASSISTANT_PROJECT_ROOT` or the `--project-root` value used by the caller. Paths that try to escape the root are rejected.
 
 ## Run Later
 
@@ -36,6 +50,13 @@ Minimal, production-like scaffold for a CLI AI assistant that works on project f
    # start ollama-mcp-bridge with a config similar to examples/bridge.example.json
    ```
 
+   The MCP server reads its project root from `ASSISTANT_PROJECT_ROOT`. Example:
+
+   ```bash
+   export ASSISTANT_PROJECT_ROOT=/absolute/path/to/project
+   python -m project_assistant_mcp.server
+   ```
+
 3. Run the CLI in planning mode first:
 
    ```bash
@@ -48,7 +69,9 @@ Minimal, production-like scaffold for a CLI AI assistant that works on project f
    project-assistant run "Propose a cleanup for the logging setup and show the diff" --project-root . --show-diff
    ```
 
-## Status
+## Limitations
 
-This step provides the scaffold, contracts, safe filesystem boundaries, logging, examples, and tests. The full agent/tool execution loop remains intentionally small and marked with TODOs for the next implementation step.
-
+- The file server handles UTF-8 text files only. Clearly binary files are skipped or rejected.
+- Very large files are rejected once they exceed `ASSISTANT_MAX_FILE_BYTES`.
+- `replace_in_file` performs exact string replacement, not semantic refactoring.
+- Search is line-based and meant for practical code navigation, not full-text indexing.
