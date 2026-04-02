@@ -33,9 +33,23 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.goal, "inspect settings")
 
     def test_config_show_parses(self) -> None:
-        args = build_parser().parse_args(["config", "show"])
+        args = build_parser().parse_args(["config", "show", "--project-root", "."])
         self.assertEqual(args.command, "config")
         self.assertEqual(args.config_command, "show")
+        self.assertEqual(args.project_root, ".")
+
+    def test_doctor_parses(self) -> None:
+        args = build_parser().parse_args(["doctor", "--project-root", "."])
+        self.assertEqual(args.command, "doctor")
+        self.assertEqual(args.project_root, ".")
+
+    def test_bridge_start_parses(self) -> None:
+        args = build_parser().parse_args(
+            ["bridge", "start", "--project-root", ".", "--bridge-config", "bridge.json"]
+        )
+        self.assertEqual(args.command, "bridge")
+        self.assertEqual(args.bridge_command, "start")
+        self.assertEqual(args.bridge_config, "bridge.json")
 
     def test_demo_list_parses(self) -> None:
         args = build_parser().parse_args(["demo", "list"])

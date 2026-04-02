@@ -26,6 +26,12 @@ def _parse_int_env(name: str, default: int) -> int:
         return default
 
 
+def _parse_positive_int_env(name: str, default: int) -> int:
+    """Parse a strictly positive integer environment variable."""
+    parsed = _parse_int_env(name, default)
+    return parsed if parsed > 0 else default
+
+
 def _parse_float_env(name: str, default: float) -> float:
     """Parse a float environment variable with a defensive fallback."""
     raw_value = os.getenv(name, "")
@@ -46,6 +52,10 @@ class AssistantConfig:
     ollama_model: str
     embeddings_model: str
     mcp_bridge_url: str
+    bridge_host: str
+    bridge_port: int
+    bridge_config_path: Path
+    max_iterations: int
     log_dir: Path
     max_file_bytes: int
     request_timeout_seconds: float
@@ -63,6 +73,16 @@ class AssistantConfig:
         ).expanduser()
         if not log_dir.is_absolute():
             log_dir = (root / log_dir).resolve()
+        bridge_host = os.getenv("ASSISTANT_BRIDGE_HOST", "127.0.0.1")
+        bridge_port = _parse_positive_int_env("ASSISTANT_BRIDGE_PORT", 8000)
+        bridge_config_path = Path(
+            os.getenv(
+                "ASSISTANT_BRIDGE_CONFIG_PATH",
+                root / ".project-assistant" / "ollama-mcp-bridge.json",
+            )
+        ).expanduser()
+        if not bridge_config_path.is_absolute():
+            bridge_config_path = (root / bridge_config_path).resolve()
         return cls(
             project_root=root,
             ollama_base_url=os.getenv(
@@ -76,8 +96,12 @@ class AssistantConfig:
             ),
             mcp_bridge_url=os.getenv(
                 "ASSISTANT_MCP_BRIDGE_URL",
-                "http://127.0.0.1:8000",
+                f"http://{bridge_host}:{bridge_port}",
             ),
+            bridge_host=bridge_host,
+            bridge_port=bridge_port,
+            bridge_config_path=bridge_config_path,
+            max_iterations=_parse_positive_int_env("ASSISTANT_MAX_ITERATIONS", 3),
             log_dir=log_dir,
             max_file_bytes=_parse_int_env("ASSISTANT_MAX_FILE_BYTES", 1_000_000),
             request_timeout_seconds=_parse_float_env(
@@ -98,6 +122,10 @@ class AssistantConfig:
             "ollama_model": self.ollama_model,
             "embeddings_model": self.embeddings_model,
             "mcp_bridge_url": self.mcp_bridge_url,
+            "bridge_host": self.bridge_host,
+            "bridge_port": self.bridge_port,
+            "bridge_config_path": str(self.bridge_config_path),
+            "max_iterations": self.max_iterations,
             "log_dir": str(self.log_dir),
             "max_file_bytes": self.max_file_bytes,
             "request_timeout_seconds": self.request_timeout_seconds,
