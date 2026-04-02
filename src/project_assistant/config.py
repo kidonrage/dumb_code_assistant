@@ -26,6 +26,17 @@ def _parse_int_env(name: str, default: int) -> int:
         return default
 
 
+def _parse_float_env(name: str, default: float) -> float:
+    """Parse a float environment variable with a defensive fallback."""
+    raw_value = os.getenv(name, "")
+    if not raw_value.strip():
+        return default
+    try:
+        return float(raw_value)
+    except ValueError:
+        return default
+
+
 @dataclass(slots=True)
 class AssistantConfig:
     """Runtime configuration loaded from environment variables."""
@@ -37,6 +48,7 @@ class AssistantConfig:
     mcp_bridge_url: str
     log_dir: Path
     max_file_bytes: int
+    request_timeout_seconds: float
     allowed_globs: list[str]
 
     @classmethod
@@ -68,6 +80,10 @@ class AssistantConfig:
             ),
             log_dir=log_dir,
             max_file_bytes=_parse_int_env("ASSISTANT_MAX_FILE_BYTES", 1_000_000),
+            request_timeout_seconds=_parse_float_env(
+                "ASSISTANT_REQUEST_TIMEOUT_SECONDS",
+                120.0,
+            ),
             allowed_globs=_parse_csv_env(
                 "ASSISTANT_ALLOWED_GLOBS",
                 ["*.py", "*.md", "*.toml", "*.json", "*.yaml", "*.yml", "*.txt"],
@@ -84,6 +100,6 @@ class AssistantConfig:
             "mcp_bridge_url": self.mcp_bridge_url,
             "log_dir": str(self.log_dir),
             "max_file_bytes": self.max_file_bytes,
+            "request_timeout_seconds": self.request_timeout_seconds,
             "allowed_globs": self.allowed_globs,
         }
-

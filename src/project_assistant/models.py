@@ -1,4 +1,4 @@
-"""Core models for CLI runs and proposed file operations."""
+"""Core models for CLI runs, assistant replies, and file operations."""
 
 from __future__ import annotations
 
@@ -25,19 +25,24 @@ class ProposedFileChange:
 
 @dataclass(slots=True)
 class ToolCallEnvelope:
-    """Minimal record of a tool call the orchestrator plans or performs."""
+    """Minimal record of tool activity reported by the assistant."""
 
     tool_name: str
-    arguments: dict[str, Any]
-    status: str = "planned"
+    purpose: str = ""
+    targets: list[str] = field(default_factory=list)
+    arguments: dict[str, Any] = field(default_factory=dict)
+    status: str = "reported"
 
 
 @dataclass(slots=True)
 class AssistantResponseSummary:
-    """High-level summary returned by the model layer."""
+    """Structured assistant reply extracted from the model output."""
 
     summary: str
     analysis: str
+    evidence_sufficient: bool = True
+    insufficient_evidence: str = ""
+    files_analyzed: list[str] = field(default_factory=list)
     proposed_changes: list[ProposedFileChange] = field(default_factory=list)
     tool_calls: list[ToolCallEnvelope] = field(default_factory=list)
     raw_text: str = ""
@@ -49,9 +54,9 @@ class RunRequest:
 
     goal: str
     project_root: Path
-    command_name: str
     apply_changes: bool = False
-    show_diff: bool = False
+    show_tool_calls: bool = False
+    max_iterations: int = 3
 
 
 @dataclass(slots=True)
@@ -62,7 +67,10 @@ class RunResult:
     mode: str
     summary: str
     analysis: str
+    evidence_sufficient: bool = True
+    insufficient_evidence: str = ""
+    files_analyzed: list[str] = field(default_factory=list)
+    tool_calls: list[ToolCallEnvelope] = field(default_factory=list)
     proposed_changes: list[ProposedFileChange] = field(default_factory=list)
     diff_text: str = ""
     log_path: Path | None = None
-

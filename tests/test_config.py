@@ -24,4 +24,4 @@ class ConfigTests(unittest.TestCase):
                 os.environ.update(previous)
         self.assertEqual(config.ollama_model, "qwen3:8b")
         self.assertIn("*.py", config.allowed_globs)
-
+        self.assertEqual(config.request_timeout_seconds, 120.0)
