@@ -1,0 +1,14 @@
+{
+  "servers": [
+    {
+      "name": "project-files",
+      "transport": "stdio",
+      "command": [
+        "python",
+        "-m",
+        "project_assistant_mcp.server"
+      ]
+    }
+  ]
+}
+
