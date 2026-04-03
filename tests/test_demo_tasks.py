@@ -23,9 +23,16 @@ class DemoTaskTests(unittest.TestCase):
         self.assertIn("usage-search", names)
         self.assertIn("documentation-update", names)
         self.assertIn("tool-surface-check", names)
+        self.assertIn("file-creation", names)
 
     def test_usage_search_demo_mentions_grouped_summary(self) -> None:
         task = get_demo_task("usage-search")
 
         self.assertIn("grouped summary", task.goal)
         self.assertIn("AssistantConfig.from_env", task.goal)
+
+    def test_file_creation_demo_is_goal_driven(self) -> None:
+        task = get_demo_task("file-creation")
+
+        self.assertIn("Discover the relevant source and documentation files yourself", task.goal)
+        self.assertIn("create a small new text file", task.requirements)

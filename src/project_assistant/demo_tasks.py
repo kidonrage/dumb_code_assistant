@@ -133,6 +133,46 @@ DEMO_TASKS: tuple[DemoTask, ...] = (
             "This scenario is useful for smoke-testing that docs and implementation still agree.",
         ),
     ),
+    DemoTask(
+        name="file-creation",
+        title="Goal-driven new file draft",
+        summary=(
+            "Start from a user goal, discover the relevant files, and draft one small "
+            "new text file with a diff preview before any write."
+        ),
+        goal=(
+            "Create docs/assistant-quickstart.txt that explains how to run the assistant "
+            "locally in 8 to 12 lines. Discover the relevant source and documentation "
+            "files yourself, inspect enough of them to justify the content, then propose "
+            "the new file in a diff preview. Mention which files you used."
+        ),
+        expected_files=(
+            "README.md",
+            "src/project_assistant/cli.py",
+            "src/project_assistant_mcp/server.py",
+        ),
+        sample_commands=(
+            'project-assistant ask "Create docs/assistant-quickstart.txt that explains how '
+            "to run the assistant locally in 8 to 12 lines. Discover the relevant source "
+            "and documentation files yourself, inspect enough of them to justify the content, "
+            'then propose the new file in a diff preview. Mention which files you used." '
+            "--project-root . --show-tool-calls",
+            'project-assistant ask "Create docs/assistant-quickstart.txt that explains how '
+            "to run the assistant locally in 8 to 12 lines. Discover the relevant source "
+            "and documentation files yourself, inspect enough of them to justify the content, "
+            'then propose the new file in a diff preview. Mention which files you used." '
+            "--project-root . --show-tool-calls --apply",
+        ),
+        requirements=(
+            "operate from a goal instead of a file-open checklist",
+            "inspect multiple files before proposing content",
+            "create a small new text file",
+            "show a diff preview before any write",
+        ),
+        notes=(
+            "This scenario makes file creation explicit while keeping --apply optional.",
+        ),
+    ),
 )
 
 

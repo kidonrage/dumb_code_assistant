@@ -7,6 +7,7 @@
         "project_assistant_mcp.server"
       ],
       "env": {
+        "PYTHONUNBUFFERED": "1",
         "ASSISTANT_PROJECT_ROOT": "${env:ASSISTANT_PROJECT_ROOT}",
         "ASSISTANT_LOG_DIR": "${env:ASSISTANT_LOG_DIR}",
         "ASSISTANT_MAX_FILE_BYTES": "${env:ASSISTANT_MAX_FILE_BYTES}"

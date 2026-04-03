@@ -34,19 +34,29 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="project-assistant",
         description="Goal-oriented CLI assistant for local project files.",
+        epilog=(
+            "Default mode is dry-run: proposed edits are previewed but not written until "
+            "you re-run the same goal with --apply."
+        ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     ask_parser = subparsers.add_parser(
         "ask",
         aliases=["plan", "run"],
-        help="Ask the assistant to investigate a goal and optionally apply edits.",
+        help="Investigate a goal from natural language and optionally apply reviewed edits.",
+        description=(
+            "Ask the assistant to work from a goal instead of hand-written file-open "
+            "steps. The assistant inspects project files through MCP tools, reports "
+            "what it used, and previews any file changes before writing them."
+        ),
+        epilog="Dry-run is the default. Add --apply only after reviewing the proposed diff.",
     )
     ask_parser.add_argument("goal", help="Natural-language goal for the assistant.")
     ask_parser.add_argument(
         "--apply",
         action="store_true",
-        help="Write approved file changes after diff preview.",
+        help="Write file changes after a successful diff preview. Omit for safe dry-run.",
     )
     ask_parser.add_argument(
         "--project-root",
@@ -56,7 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
     ask_parser.add_argument(
         "--show-tool-calls",
         action="store_true",
-        help="Print tool activity reported by the assistant.",
+        help="Print the assistant-reported MCP tool activity alongside the final summary.",
     )
     ask_parser.add_argument(
         "--max-iterations",
@@ -65,9 +75,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum model retries for structured output repair. Defaults to ASSISTANT_MAX_ITERATIONS.",
     )
 
-    config_parser = subparsers.add_parser("config", help="Inspect resolved configuration.")
+    config_parser = subparsers.add_parser(
+        "config",
+        help="Inspect the resolved runtime configuration.",
+    )
     config_subparsers = config_parser.add_subparsers(dest="config_command", required=True)
-    config_show_parser = config_subparsers.add_parser("show")
+    config_show_parser = config_subparsers.add_parser(
+        "show",
+        help="Print the effective configuration after environment and CLI overrides.",
+    )
     config_show_parser.add_argument(
         "--project-root",
         default=None,
@@ -77,6 +93,10 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_parser = subparsers.add_parser(
         "doctor",
         help="Validate local Ollama, the configured model, and the MCP bridge.",
+        description=(
+            "Check the local runtime chain before a real assistant run: Ollama reachability, "
+            "model availability, and bridge health."
+        ),
     )
     doctor_parser.add_argument(
         "--project-root",
@@ -87,12 +107,19 @@ def build_parser() -> argparse.ArgumentParser:
     bridge_parser = subparsers.add_parser(
         "bridge",
         help="Manage the local ollama-mcp-bridge runtime.",
+        description=(
+            "Write or launch the bridge configuration that exposes the project-scoped MCP "
+            "file server to Ollama."
+        ),
     )
     bridge_subparsers = bridge_parser.add_subparsers(dest="bridge_command", required=True)
 
     bridge_start_parser = bridge_subparsers.add_parser(
         "start",
         help="Start ollama-mcp-bridge with the local MCP file server config.",
+        description=(
+            "Generate the bridge config if needed, then run ollama-mcp-bridge in the foreground."
+        ),
     )
     bridge_start_parser.add_argument(
         "--project-root",
@@ -108,6 +135,7 @@ def build_parser() -> argparse.ArgumentParser:
     bridge_write_parser = bridge_subparsers.add_parser(
         "write-config",
         help="Write the generated ollama-mcp-bridge config file and print its path.",
+        description="Generate the bridge config without starting the bridge process.",
     )
     bridge_write_parser.add_argument(
         "--project-root",
@@ -120,12 +148,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional output path for the generated config file.",
     )
 
-    demo_parser = subparsers.add_parser("demo", help="List demo goals.")
+    demo_parser = subparsers.add_parser(
+        "demo",
+        help="Inspect reproducible demo scenarios.",
+        description=(
+            "Show goal-driven demo scenarios that exercise search, analysis, diffs, "
+            "and optional writes against this repository."
+        ),
+    )
     demo_subparsers = demo_parser.add_subparsers(dest="demo_command", required=True)
-    demo_subparsers.add_parser("list")
+    demo_subparsers.add_parser(
+        "list",
+        help="List the available demo scenarios and what they cover.",
+    )
     demo_show_parser = demo_subparsers.add_parser(
         "show",
         help="Show one reproducible demo scenario with copy-paste commands.",
+        description="Print one demo scenario, its goal, sample commands, and coverage.",
     )
     demo_show_parser.add_argument(
         "name",
@@ -194,7 +233,7 @@ def _format_demo_task(task: DemoTask) -> str:
     lines.append("Sample commands")
     lines.extend(f"- {command}" for command in task.sample_commands)
     lines.append("")
-    lines.append("Requirements covered")
+    lines.append("Coverage")
     lines.extend(f"- {item}" for item in task.requirements)
     if task.notes:
         lines.append("")
@@ -210,7 +249,42 @@ def _print_demo_list() -> None:
         print()
         print(f"{task.name}: {task.title}")
         print(task.summary)
+        print(f"Coverage: {', '.join(task.requirements)}")
         print(f"Files: {', '.join(task.expected_files)}")
+
+
+def _quoted_project_root(project_root: Path) -> str:
+    """Render a shell-safe project-root argument value."""
+    return shlex.quote(str(project_root))
+
+
+def _runtime_hint(config: AssistantConfig, exc: Exception) -> str:
+    """Return one useful next-step command for runtime failures."""
+    project_root = _quoted_project_root(config.project_root)
+    message = str(exc).lower()
+    if "could not reach ollama" in message:
+        return (
+            "Next step: run `ollama serve`, then re-run "
+            f"`project-assistant doctor --project-root {project_root}`."
+        )
+    if "not installed in ollama" in message:
+        return f"Next step: run `ollama pull {config.ollama_model}`."
+    if "bridge" in message:
+        return (
+            "Next step: run "
+            f"`project-assistant bridge start --project-root {project_root}`."
+        )
+    return (
+        "Next step: run "
+        f"`project-assistant config show --project-root {project_root}`."
+    )
+
+
+def _print_error(label: str, exc: Exception, *, hint: str | None = None) -> None:
+    """Render a concise CLI error with an optional next-step hint."""
+    print(f"{label}: {exc}", file=sys.stderr)
+    if hint:
+        print(hint, file=sys.stderr)
 
 
 def _safe_review_commands(result: RunResult) -> list[str]:
@@ -301,7 +375,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             health = validate_runtime(config)
         except (RuntimeValidationError, FileNotFoundError, NotADirectoryError) as exc:
-            print(f"Doctor failed: {exc}", file=sys.stderr)
+            _print_error("Doctor failed", exc, hint=_runtime_hint(config, exc))
             return 2
         print("Doctor: ok")
         print(f"- Ollama: {health.ollama_url}")
@@ -323,7 +397,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.bridge_command == "start":
                 return start_bridge(config, output_path=output_path)
         except (RuntimeValidationError, FileNotFoundError, NotADirectoryError) as exc:
-            print(f"Bridge command failed: {exc}", file=sys.stderr)
+            _print_error("Bridge command failed", exc, hint=_runtime_hint(config, exc))
             return 2
 
     if args.command == "demo":
@@ -351,7 +425,7 @@ def main(argv: list[str] | None = None) -> int:
         validate_runtime(config)
         result = orchestrator.run(request)
     except (AssistantRunError, RuntimeValidationError, FileNotFoundError, NotADirectoryError) as exc:
-        print(f"Run failed: {exc}", file=sys.stderr)
+        _print_error("Run failed", exc, hint=_runtime_hint(config, exc))
         return 2
     except Exception as exc:  # pragma: no cover - last-resort guard
         LOGGER.exception("Unexpected CLI failure")

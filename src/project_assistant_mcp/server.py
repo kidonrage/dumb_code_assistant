@@ -60,17 +60,28 @@ class ProjectFileServer:
         operation: Callable[[], dict[str, Any]],
     ) -> dict[str, Any]:
         """Execute a tool call with structured logging and graceful error handling."""
-        LOGGER.info("MCP tool call: %s %s", tool_name, details)
+        LOGGER.info("mcp_tool start tool=%s details=%s", tool_name, details)
         try:
             result = operation()
         except (FileNotFoundError, IsADirectoryError, PermissionError, ValueError) as exc:
-            LOGGER.warning("MCP tool rejected: %s error=%s", tool_name, exc)
+            LOGGER.warning("mcp_tool reject tool=%s error=%s", tool_name, exc)
             return {"ok": False, "error": str(exc)}
         except Exception as exc:
-            LOGGER.exception("MCP tool failed: %s", tool_name)
+            LOGGER.exception("mcp_tool fail tool=%s", tool_name)
             return {"ok": False, "error": str(exc)}
-        LOGGER.info("MCP tool completed: %s ok=%s", tool_name, result.get("ok", True))
+        LOGGER.info("mcp_tool finish tool=%s ok=%s", tool_name, result.get("ok", True))
         return result
+
+    def _diff_metadata(self, diff_text: str, *, max_chars: int) -> dict[str, Any]:
+        """Build stable diff metadata shared by preview and write operations."""
+        truncated_diff, truncated, total_chars = truncate_text(diff_text, max_chars)
+        return {
+            "diff": truncated_diff,
+            "truncated": truncated,
+            "diff_truncated": truncated,
+            "returned_diff_chars": len(truncated_diff),
+            "total_diff_chars": total_chars,
+        }
 
     def _read_existing_text(self, raw_path: str, max_chars: int | None = None) -> dict[str, Any]:
         """Read and validate an existing project file as UTF-8 text."""
@@ -128,12 +139,16 @@ class ProjectFileServer:
             operation,
         )
 
-    def read_file(self, path: str, max_chars: int = 20_000) -> dict[str, Any]:
+    def read_file(self, path: str, max_chars: int | None = 20_000) -> dict[str, Any]:
         """Read one project text file safely with explicit truncation metadata."""
 
         def operation() -> dict[str, Any]:
             file_data = self._read_existing_text(path, max_chars=max_chars)
-            return {"ok": True, **file_data}
+            return {
+                "ok": True,
+                **file_data,
+                "returned_content_chars": file_data["returned_chars"],
+            }
 
         return self._run_tool(
             "read_file",
@@ -153,6 +168,7 @@ class ProjectFileServer:
                 "ok": True,
                 "results": results,
                 "requested_count": len(paths),
+                "returned_count": len(results),
                 "success_count": success_count,
                 "error_count": len(results) - success_count,
             }
@@ -187,6 +203,7 @@ class ProjectFileServer:
                 return {
                     "ok": True,
                     "matches": [],
+                    "requested_max_results": max_results,
                     "returned_count": 0,
                     "truncated": False,
                     "search_mode": "regex" if use_regex else "plain",
@@ -243,6 +260,7 @@ class ProjectFileServer:
                         return {
                             "ok": True,
                             "matches": matches,
+                            "requested_max_results": max_results,
                             "returned_count": len(matches),
                             "truncated": True,
                             "search_mode": "regex" if use_regex else "plain",
@@ -254,6 +272,7 @@ class ProjectFileServer:
             return {
                 "ok": True,
                 "matches": matches,
+                "requested_max_results": max_results,
                 "returned_count": len(matches),
                 "truncated": False,
                 "search_mode": "regex" if use_regex else "plain",
@@ -298,14 +317,12 @@ class ProjectFileServer:
                 path=Path(relative_path),
                 context_lines=context_lines,
             )
-            truncated_diff, truncated, total_chars = truncate_text(diff_text, max_chars)
             return {
                 "ok": True,
                 "path": relative_path,
+                "applied": False,
                 "changed": original != updated_content,
-                "diff": truncated_diff,
-                "truncated": truncated,
-                "total_diff_chars": total_chars,
+                **self._diff_metadata(diff_text, max_chars=max_chars),
             }
 
         return self._run_tool(
@@ -348,18 +365,13 @@ class ProjectFileServer:
                 after=content,
                 path=Path(relative_path),
             )
-            truncated_diff, truncated, total_diff_chars = truncate_text(
-                diff_text,
-                DEFAULT_MAX_DIFF_CHARS,
-            )
             return {
                 "ok": True,
                 "path": relative_path,
+                "applied": True,
                 "changed": original != content,
                 "created": not existed_before,
-                "diff": truncated_diff,
-                "diff_truncated": truncated,
-                "total_diff_chars": total_diff_chars,
+                **self._diff_metadata(diff_text, max_chars=DEFAULT_MAX_DIFF_CHARS),
             }
 
         return self._run_tool(
@@ -399,10 +411,6 @@ class ProjectFileServer:
                 after=updated,
                 path=Path(relative_project_path(self.root, resolved_path)),
             )
-            truncated_diff, truncated, total_diff_chars = truncate_text(
-                diff_text,
-                DEFAULT_MAX_DIFF_CHARS,
-            )
             if not dry_run:
                 resolved_path.write_text(updated, encoding="utf-8")
 
@@ -412,9 +420,7 @@ class ProjectFileServer:
                 "occurrences": occurrences,
                 "applied": not dry_run,
                 "changed": original != updated,
-                "diff": truncated_diff,
-                "diff_truncated": truncated,
-                "total_diff_chars": total_diff_chars,
+                **self._diff_metadata(diff_text, max_chars=DEFAULT_MAX_DIFF_CHARS),
             }
 
         return self._run_tool(
@@ -451,7 +457,7 @@ def create_mcp_server(config: AssistantConfig | None = None) -> FastMCP:
         )
 
     @server.tool()
-    def read_file(path: str, max_chars: int = 20_000) -> dict[str, Any]:
+    def read_file(path: str, max_chars: int | None = 20_000) -> dict[str, Any]:
         """Read one UTF-8 project file with optional truncation."""
         return backend.read_file(path=path, max_chars=max_chars)
 

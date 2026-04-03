@@ -53,7 +53,7 @@ project-assistant ask "Update README.md based on the current implementation. Ins
 
 Expected output shape:
 
-- `Analyzed files` lists the README plus source files that justified the edit.
+- `Analyzed files` lists the README plus the source files that justified the edit.
 - `Proposed changes` appears in dry-run mode.
 - `Applied changes` appears only with `--apply`.
 - `Diff preview` shows the README patch before or alongside any write.
@@ -83,6 +83,36 @@ Expected output shape:
 - `Proposed changes` only if a mismatch is found
 - `Run log`
 
+## Scenario 4: Goal-Driven File Creation
+
+Prompt:
+
+```text
+Create docs/assistant-quickstart.txt that explains how to run the assistant locally in
+8 to 12 lines. Discover the relevant source and documentation files yourself, inspect
+enough of them to justify the content, then propose the new file in a diff preview.
+Mention which files you used.
+```
+
+Dry-run:
+
+```bash
+project-assistant ask "Create docs/assistant-quickstart.txt that explains how to run the assistant locally in 8 to 12 lines. Discover the relevant source and documentation files yourself, inspect enough of them to justify the content, then propose the new file in a diff preview. Mention which files you used." --project-root . --show-tool-calls
+```
+
+Apply:
+
+```bash
+project-assistant ask "Create docs/assistant-quickstart.txt that explains how to run the assistant locally in 8 to 12 lines. Discover the relevant source and documentation files yourself, inspect enough of them to justify the content, then propose the new file in a diff preview. Mention which files you used." --project-root . --show-tool-calls --apply
+```
+
+Expected output shape:
+
+- `Analyzed files` lists the discovered evidence files, not a fixed checklist from the user.
+- `Tool activity` shows cross-file discovery.
+- `Proposed changes` includes the new file path in dry-run mode.
+- `Diff preview` shows the full unified diff for the new file before write.
+
 ## Stable Run Logs
 
 Each run writes `logs/run-*.jsonl` with these top-level fields:
@@ -107,4 +137,5 @@ Reset only the files touched by an apply run:
 
 ```bash
 git restore -- README.md
+git restore -- docs/assistant-quickstart.txt
 ```

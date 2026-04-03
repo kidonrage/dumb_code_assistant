@@ -132,27 +132,31 @@ class AssistantOrchestrator:
 
         summary = self._require_string(payload, "summary")
         analysis = self._require_string(payload, "analysis")
-        evidence_sufficient = bool(payload.get("evidence_sufficient", True))
-        insufficient_evidence = str(payload.get("insufficient_evidence", "") or "")
+        evidence_sufficient = self._require_bool(payload, "evidence_sufficient")
+        insufficient_evidence = self._require_optional_string(
+            payload,
+            "insufficient_evidence",
+        )
 
-        files_analyzed_raw = payload.get("files_analyzed", [])
-        if not isinstance(files_analyzed_raw, list):
-            raise AssistantRunError("files_analyzed must be a JSON array of strings.")
-        files_analyzed = sorted({str(item) for item in files_analyzed_raw if str(item).strip()})
+        files_analyzed = self._require_string_list(
+            payload,
+            "files_analyzed",
+            sort_unique=True,
+        )
 
-        tool_calls_raw = payload.get("tool_activity", [])
-        if not isinstance(tool_calls_raw, list):
-            raise AssistantRunError("tool_activity must be a JSON array.")
+        tool_calls_raw = self._require_list(payload, "tool_activity")
         tool_calls = [self._parse_tool_activity(item) for item in tool_calls_raw]
 
-        proposed_changes_raw = payload.get("proposed_changes", [])
-        if not isinstance(proposed_changes_raw, list):
-            raise AssistantRunError("proposed_changes must be a JSON array.")
+        proposed_changes_raw = self._require_list(payload, "proposed_changes")
         proposed_changes = [self._parse_proposed_change(item) for item in proposed_changes_raw]
 
         if not evidence_sufficient and proposed_changes:
             raise AssistantRunError(
                 "Assistant reported insufficient evidence but also proposed file changes."
+            )
+        if not evidence_sufficient and not insufficient_evidence:
+            raise AssistantRunError(
+                "Assistant reported insufficient evidence but did not explain the gap."
             )
 
         return AssistantResponseSummary(
@@ -171,14 +175,11 @@ class AssistantOrchestrator:
         if not isinstance(payload, dict):
             raise AssistantRunError("Each tool_activity item must be a JSON object.")
         tool_name = self._require_string(payload, "tool_name")
-        purpose = str(payload.get("purpose", "") or "")
-        targets_raw = payload.get("targets", [])
-        if not isinstance(targets_raw, list):
-            raise AssistantRunError("tool_activity.targets must be a JSON array.")
-        targets = [str(item) for item in targets_raw if str(item).strip()]
+        purpose = self._require_optional_string(payload, "purpose")
+        targets = self._require_string_list(payload, "targets")
         arguments = payload.get("arguments", {})
         if not isinstance(arguments, dict):
-            arguments = {}
+            raise AssistantRunError("tool_activity.arguments must be a JSON object when present.")
         return ToolCallEnvelope(
             tool_name=tool_name,
             purpose=purpose,
@@ -223,7 +224,7 @@ class AssistantOrchestrator:
             original_text = ""
             read_result = self.file_server.read_file(
                 change.path.as_posix(),
-                max_chars=self.config.max_file_bytes,
+                max_chars=None,
             )
             if read_result.get("ok"):
                 original_text = str(read_result.get("content", ""))
@@ -281,6 +282,47 @@ class AssistantOrchestrator:
         if not isinstance(value, str) or not value.strip():
             raise AssistantRunError(f"{field_name} must be a non-empty string.")
         return value.strip()
+
+    def _require_optional_string(self, payload: dict[str, Any], field_name: str) -> str:
+        """Read one required string field that may be empty."""
+        value = payload.get(field_name)
+        if not isinstance(value, str):
+            raise AssistantRunError(f"{field_name} must be a string.")
+        return value.strip()
+
+    def _require_bool(self, payload: dict[str, Any], field_name: str) -> bool:
+        """Read one required JSON boolean field."""
+        value = payload.get(field_name)
+        if not isinstance(value, bool):
+            raise AssistantRunError(f"{field_name} must be a boolean.")
+        return value
+
+    def _require_list(self, payload: dict[str, Any], field_name: str) -> list[Any]:
+        """Read one required JSON array field."""
+        value = payload.get(field_name)
+        if not isinstance(value, list):
+            raise AssistantRunError(f"{field_name} must be a JSON array.")
+        return value
+
+    def _require_string_list(
+        self,
+        payload: dict[str, Any],
+        field_name: str,
+        *,
+        sort_unique: bool = False,
+    ) -> list[str]:
+        """Read one required JSON array of non-empty strings."""
+        values = self._require_list(payload, field_name)
+        normalized: list[str] = []
+        for item in values:
+            if not isinstance(item, str) or not item.strip():
+                raise AssistantRunError(
+                    f"{field_name} must contain non-empty strings."
+                )
+            normalized.append(item.strip())
+        if sort_unique:
+            return sorted(set(normalized))
+        return normalized
 
     def _require_text(self, payload: dict[str, Any], field_name: str) -> str:
         """Read one required text field without trimming meaningful whitespace."""

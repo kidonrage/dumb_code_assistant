@@ -10,7 +10,7 @@ from pathlib import Path
 from project_assistant.config import AssistantConfig
 from project_assistant.models import RunRequest
 from project_assistant.ollama_client import OllamaResponse
-from project_assistant.orchestrator import AssistantOrchestrator
+from project_assistant.orchestrator import AssistantOrchestrator, AssistantRunError
 from project_assistant_mcp.server import ProjectFileServer
 
 
@@ -44,6 +44,15 @@ class OrchestratorTests(unittest.TestCase):
             model_client=FakeOllamaClient(responses),
             file_server=ProjectFileServer(config),
         )
+
+    def assert_run_fails(self, root: Path, response: str, message_fragment: str) -> None:
+        """Assert that one assistant response is rejected with a specific error."""
+        orchestrator = self.make_orchestrator(root, [response])
+        with self.assertRaises(AssistantRunError) as context:
+            orchestrator.run(
+                RunRequest(goal="validate response", project_root=root, max_iterations=1)
+            )
+        self.assertIn(message_fragment, str(context.exception))
 
     def test_dry_run_builds_diff_without_writing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -134,3 +143,85 @@ class OrchestratorTests(unittest.TestCase):
             )
 
             self.assertEqual(result.summary, "No changes needed.")
+
+    def test_response_requires_boolean_evidence_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            response = json.dumps(
+                {
+                    "summary": "No changes needed.",
+                    "analysis": "Inspected enough files to answer.",
+                    "evidence_sufficient": "yes",
+                    "insufficient_evidence": "",
+                    "files_analyzed": ["README.md"],
+                    "tool_activity": [],
+                    "proposed_changes": [],
+                }
+            )
+
+            self.assert_run_fails(root, response, "evidence_sufficient must be a boolean")
+
+    def test_response_rejects_invalid_files_analyzed_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            response = json.dumps(
+                {
+                    "summary": "No changes needed.",
+                    "analysis": "Inspected enough files to answer.",
+                    "evidence_sufficient": True,
+                    "insufficient_evidence": "",
+                    "files_analyzed": ["README.md", 7],
+                    "tool_activity": [],
+                    "proposed_changes": [],
+                }
+            )
+
+            self.assert_run_fails(
+                root,
+                response,
+                "files_analyzed must contain non-empty strings",
+            )
+
+    def test_response_rejects_invalid_tool_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            response = json.dumps(
+                {
+                    "summary": "No changes needed.",
+                    "analysis": "Inspected enough files to answer.",
+                    "evidence_sufficient": True,
+                    "insufficient_evidence": "",
+                    "files_analyzed": ["README.md"],
+                    "tool_activity": [
+                        {
+                            "tool_name": "search_text",
+                            "purpose": "scan the repo",
+                            "targets": "src/**/*.py",
+                        }
+                    ],
+                    "proposed_changes": [],
+                }
+            )
+
+            self.assert_run_fails(root, response, "targets must be a JSON array")
+
+    def test_insufficient_evidence_requires_a_gap_explanation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            response = json.dumps(
+                {
+                    "summary": "I need more evidence.",
+                    "analysis": "The inspected files were not enough.",
+                    "evidence_sufficient": False,
+                    "insufficient_evidence": "",
+                    "files_analyzed": ["README.md"],
+                    "tool_activity": [],
+                    "proposed_changes": [],
+                }
+            )
+
+            self.assert_run_fails(
+                root,
+                response,
+                "did not explain the gap",
+            )

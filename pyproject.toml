@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "project-assistant"
 version = "0.1.0"
-description = "Minimal CLI scaffold for a local Ollama file assistant."
+description = "Goal-oriented local project assistant for Ollama and a project-scoped MCP file server."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -21,4 +21,3 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-

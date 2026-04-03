@@ -9,7 +9,7 @@ from typing import Any
 
 @dataclass(slots=True)
 class ProposedFileChange:
-    """Represents a single file modification proposed by the assistant."""
+    """One proposed file create or overwrite operation."""
 
     path: Path
     reason: str
@@ -25,7 +25,7 @@ class ProposedFileChange:
 
 @dataclass(slots=True)
 class ToolCallEnvelope:
-    """Minimal record of tool activity reported by the assistant."""
+    """Assistant-reported tool activity preserved for deterministic CLI output."""
 
     tool_name: str
     purpose: str = ""
@@ -36,7 +36,7 @@ class ToolCallEnvelope:
 
 @dataclass(slots=True)
 class AssistantResponseSummary:
-    """Structured assistant reply extracted from the model output."""
+    """Validated assistant reply extracted from the model output."""
 
     summary: str
     analysis: str
@@ -50,7 +50,7 @@ class AssistantResponseSummary:
 
 @dataclass(slots=True)
 class RunRequest:
-    """Describes a single CLI request."""
+    """One user goal plus execution controls for the orchestrator."""
 
     goal: str
     project_root: Path
@@ -61,7 +61,7 @@ class RunRequest:
 
 @dataclass(slots=True)
 class RunResult:
-    """Final CLI output assembled by the orchestrator."""
+    """Final validated run result rendered by the CLI."""
 
     goal: str
     mode: str

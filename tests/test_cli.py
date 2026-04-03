@@ -7,12 +7,22 @@ import io
 import unittest
 from pathlib import Path
 
-from project_assistant.cli import _print_result, build_parser
+from project_assistant.cli import _print_demo_list, _print_result, build_parser
 from project_assistant.models import ProposedFileChange, RunResult
 
 
 class CliTests(unittest.TestCase):
     """Validate top-level CLI parsing."""
+
+    def _subparser(self, command_name: str):
+        """Return one named subparser from the top-level parser."""
+        parser = build_parser()
+        for action in parser._actions:  # pylint: disable=protected-access
+            if not hasattr(action, "choices") or action.choices is None:
+                continue
+            if command_name in action.choices:
+                return action.choices[command_name]
+        raise KeyError(command_name)
 
     def test_ask_command_parses(self) -> None:
         args = build_parser().parse_args(
@@ -65,6 +75,26 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.command, "demo")
         self.assertEqual(args.demo_command, "show")
         self.assertEqual(args.name, "usage-search")
+
+    def test_top_level_help_mentions_dry_run_default(self) -> None:
+        help_text = build_parser().format_help()
+        self.assertIn("Default mode is dry-run", help_text)
+        self.assertIn("demo", help_text)
+
+    def test_ask_help_mentions_goal_driven_dry_run_behavior(self) -> None:
+        help_text = self._subparser("ask").format_help()
+        self.assertIn("work from a goal", help_text)
+        self.assertIn("Dry-run is the default", help_text)
+        self.assertIn("--apply", help_text)
+
+    def test_demo_list_includes_coverage_text(self) -> None:
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            _print_demo_list()
+
+        rendered = stdout.getvalue()
+        self.assertIn("Coverage:", rendered)
+        self.assertIn("usage-search", rendered)
 
     def test_print_result_shows_proposed_changes_and_safe_review(self) -> None:
         result = RunResult(
