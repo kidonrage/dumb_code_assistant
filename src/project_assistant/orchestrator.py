@@ -207,7 +207,10 @@ class AssistantOrchestrator:
         prepared_changes: list[ProposedFileChange] = []
         diff_sections: list[str] = []
 
-        for change in assistant_reply.proposed_changes:
+        for change in sorted(
+            assistant_reply.proposed_changes,
+            key=lambda item: item.path.as_posix(),
+        ):
             preview = self.file_server.preview_diff(
                 path=change.path.as_posix(),
                 updated_content=change.updated_text,

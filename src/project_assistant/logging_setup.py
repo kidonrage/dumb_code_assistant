@@ -25,12 +25,18 @@ class JsonlRunLogger:
     def __init__(self, log_dir: Path) -> None:
         self.log_dir = log_dir
         self.log_dir.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
-        self.path = self.log_dir / f"run-{timestamp}.jsonl"
+        timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%S%fZ")
+        self.run_id = f"run-{timestamp}"
+        self.event_index = 0
+        self.path = self.log_dir / f"{self.run_id}.jsonl"
 
     def write_event(self, event_type: str, payload: Any) -> None:
         """Write a single structured event."""
+        self.event_index += 1
         record = {
+            "schema_version": 1,
+            "run_id": self.run_id,
+            "event_index": self.event_index,
             "timestamp": datetime.now(tz=UTC).isoformat(),
             "event_type": event_type,
             "payload": self._normalize(payload),
@@ -48,5 +54,6 @@ class JsonlRunLogger:
             return {key: self._normalize(value) for key, value in payload.items()}
         if isinstance(payload, list):
             return [self._normalize(item) for item in payload]
+        if isinstance(payload, tuple):
+            return [self._normalize(item) for item in payload]
         return payload
-

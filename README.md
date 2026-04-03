@@ -10,6 +10,8 @@ Minimal CLI assistant for local project work through Ollama plus a file MCP serv
 - Requires the model to answer in strict JSON so the orchestrator can show a clean summary.
 - Previews diffs locally before any write.
 - Defaults to dry-run. `--apply` is required to write files.
+- Ships with reproducible demo scenarios for usage search, README updates, and a lightweight cross-file validation check.
+- Prints deterministic sections so runs clearly separate analyzed files, proposed changes, applied changes, and the run log path.
 - Uses local Ollama with `qwen3:8b` by default.
 - Does not add embeddings-based retrieval. `embeddinggemma` stays optional and unused unless a future feature truly needs it.
 
@@ -124,6 +126,7 @@ Other commands:
 - `project-assistant bridge write-config`
 - `project-assistant bridge start`
 - `project-assistant demo list`
+- `project-assistant demo show usage-search`
 
 Optional flags for `ask`:
 
@@ -131,6 +134,72 @@ Optional flags for `ask`:
 - `--project-root`
 - `--show-tool-calls`
 - `--max-iterations`
+
+## Demo Scenarios
+
+Inspect the built-in catalog first:
+
+```bash
+project-assistant demo list
+project-assistant demo show usage-search
+project-assistant demo show documentation-update
+project-assistant demo show tool-surface-check
+```
+
+Scenario 1: Usage search
+
+```text
+Find all places where `AssistantConfig.from_env` is used. Search across multiple files,
+inspect the relevant call sites, then produce a grouped summary by runtime role.
+Explicitly list the files you used.
+```
+
+```bash
+project-assistant ask "Find all places where \`AssistantConfig.from_env\` is used. Search across multiple files, inspect the relevant call sites, then produce a grouped summary by runtime role. Explicitly list the files you used." --project-root . --show-tool-calls
+```
+
+This scenario demonstrates multi-file search, targeted file inspection, grouped findings, and explicit file reporting.
+
+Scenario 2: Documentation update
+
+```text
+Update README.md based on the current implementation. Inspect README.md,
+src/project_assistant/cli.py, src/project_assistant/orchestrator.py,
+src/project_assistant/logging_setup.py, and src/project_assistant/demo_tasks.py.
+Infer which documentation sections should be updated, then propose a README-only
+diff preview. Mention the files you used.
+```
+
+Dry-run preview:
+
+```bash
+project-assistant ask "Update README.md based on the current implementation. Inspect README.md, src/project_assistant/cli.py, src/project_assistant/orchestrator.py, src/project_assistant/logging_setup.py, and src/project_assistant/demo_tasks.py. Infer which documentation sections should be updated, then propose a README-only diff preview. Mention the files you used." --project-root .
+```
+
+Optional apply:
+
+```bash
+project-assistant ask "Update README.md based on the current implementation. Inspect README.md, src/project_assistant/cli.py, src/project_assistant/orchestrator.py, src/project_assistant/logging_setup.py, and src/project_assistant/demo_tasks.py. Infer which documentation sections should be updated, then propose a README-only diff preview. Mention the files you used." --project-root . --apply
+```
+
+This scenario demonstrates README inspection, source inspection, inferred documentation updates, diff preview, and optional apply.
+
+Scenario 3: Lightweight validation
+
+```text
+Check that the README MCP tool list matches the tools actually registered in
+src/project_assistant_mcp/server.py. Inspect the docs and implementation,
+summarize any mismatches, and propose a README-only fix if needed.
+Mention which files you used.
+```
+
+```bash
+project-assistant ask "Check that the README MCP tool list matches the tools actually registered in src/project_assistant_mcp/server.py. Inspect the docs and implementation, summarize any mismatches, and propose a README-only fix if needed. Mention which files you used." --project-root . --show-tool-calls
+```
+
+This scenario demonstrates a lightweight invariant check across files with deterministic reporting.
+
+Additional prompts and copy-paste commands live in [examples/demo_prompts.md](examples/demo_prompts.md).
 
 ## Configuration
 
@@ -176,7 +245,9 @@ In another terminal:
 . .venv/bin/activate
 export ASSISTANT_PROJECT_ROOT=/absolute/path/to/project
 project-assistant doctor
-project-assistant ask "Find all places where the MCP bridge URL is configured" --show-tool-calls
+project-assistant demo list
+project-assistant demo show usage-search
+project-assistant ask "Find all places where \`AssistantConfig.from_env\` is used. Search across multiple files, inspect the relevant call sites, then produce a grouped summary by runtime role. Explicitly list the files you used." --project-root . --show-tool-calls
 ```
 
 ## Control Flow
@@ -191,17 +262,48 @@ project-assistant ask "Find all places where the MCP bridge URL is configured" -
 8. The orchestrator parses the final JSON answer.
 9. If file edits were proposed, the orchestrator builds local diff previews.
 10. Dry-run stops after preview. `--apply` writes the files after preview succeeds.
-11. Console output shows summary, files analyzed, reported tool activity when requested, proposed or applied changes, and diff output when relevant.
+11. Console output shows summary, analyzed files, reported tool activity when requested, proposed changes or applied changes, diff preview, safe review commands, and the run log path.
 
 ## Dry-Run vs Apply
 
 - Default behavior is dry-run. The assistant may propose file updates, but nothing is written.
 - `--apply` writes the proposed file content after the orchestrator successfully generates a diff preview.
 - If the model does not provide enough evidence, the run reports that gap instead of inventing an answer.
+- Dry-run and apply output use separate section headers so demo runs clearly distinguish proposed changes from applied changes.
 
 ## Logging
 
 Each run writes a JSONL log file under `logs/` by default. Logged events include the request, raw model replies, parsed assistant reply, diff preview, apply step, and final result.
+
+The log format is stable and line-oriented:
+
+- `schema_version`
+- `run_id`
+- `event_index`
+- `timestamp`
+- `event_type`
+- `payload`
+
+This makes demo runs easy to diff, archive, or post-process with standard Unix tools.
+
+## Reviewing and Resetting Safely
+
+For dry-run demos:
+
+```bash
+git status --short
+git diff -- README.md
+```
+
+For apply demos:
+
+```bash
+git status --short
+git diff -- README.md
+git restore -- README.md
+```
+
+Review the diff first. Use `git restore -- <path>` only for files you intentionally changed during the demo.
 
 ## Limitations
 

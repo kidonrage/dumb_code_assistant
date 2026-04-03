@@ -5,11 +5,12 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import shlex
 import sys
 from pathlib import Path
 
 from .config import AssistantConfig
-from .demo_tasks import list_demo_tasks
+from .demo_tasks import DemoTask, get_demo_task, list_demo_tasks
 from .logging_setup import configure_logging
 from .models import RunRequest, RunResult
 from .orchestrator import AssistantOrchestrator, AssistantRunError
@@ -29,6 +30,7 @@ def _positive_int(value: str) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the top-level argument parser."""
+    demo_names = [task.name for task in list_demo_tasks()]
     parser = argparse.ArgumentParser(
         prog="project-assistant",
         description="Goal-oriented CLI assistant for local project files.",
@@ -121,6 +123,15 @@ def build_parser() -> argparse.ArgumentParser:
     demo_parser = subparsers.add_parser("demo", help="List demo goals.")
     demo_subparsers = demo_parser.add_subparsers(dest="demo_command", required=True)
     demo_subparsers.add_parser("list")
+    demo_show_parser = demo_subparsers.add_parser(
+        "show",
+        help="Show one reproducible demo scenario with copy-paste commands.",
+    )
+    demo_show_parser.add_argument(
+        "name",
+        choices=demo_names,
+        help="Named demo scenario to inspect.",
+    )
 
     return parser
 
@@ -142,33 +153,103 @@ def _resolve_output_path(raw_value: str | None, project_root: Path) -> Path | No
     return (project_root / output_path).resolve()
 
 
+def _print_section(title: str) -> None:
+    """Render one plain-text output section header."""
+    print()
+    print(title)
+
+
+def _print_block(title: str, content: str) -> None:
+    """Render one titled text block."""
+    _print_section(title)
+    print(content)
+
+
+def _print_items(title: str, items: list[str], *, empty_text: str = "- none") -> None:
+    """Render a stable bullet list section."""
+    _print_section(title)
+    if items:
+        for item in items:
+            print(f"- {item}")
+        return
+    print(empty_text)
+
+
+def _format_demo_task(task: DemoTask) -> str:
+    """Build a deterministic plain-text demo description."""
+    lines = [
+        f"Scenario: {task.name}",
+        f"Title: {task.title}",
+        "",
+        "Summary",
+        task.summary,
+        "",
+        "Goal",
+        task.goal,
+        "",
+        "Expected files",
+    ]
+    lines.extend(f"- {path}" for path in task.expected_files)
+    lines.append("")
+    lines.append("Sample commands")
+    lines.extend(f"- {command}" for command in task.sample_commands)
+    lines.append("")
+    lines.append("Requirements covered")
+    lines.extend(f"- {item}" for item in task.requirements)
+    if task.notes:
+        lines.append("")
+        lines.append("Notes")
+        lines.extend(f"- {item}" for item in task.notes)
+    return "\n".join(lines)
+
+
+def _print_demo_list() -> None:
+    """Render the demo catalog in a stable order."""
+    print("Demo scenarios")
+    for task in list_demo_tasks():
+        print()
+        print(f"{task.name}: {task.title}")
+        print(task.summary)
+        print(f"Files: {', '.join(task.expected_files)}")
+
+
+def _safe_review_commands(result: RunResult) -> list[str]:
+    """Build safe review commands for proposed or applied file changes."""
+    if not result.proposed_changes:
+        return []
+    paths = sorted({change.path.as_posix() for change in result.proposed_changes})
+    quoted_paths = " ".join(shlex.quote(path) for path in paths)
+    commands = [
+        "git status --short",
+        f"git diff -- {quoted_paths}",
+    ]
+    if result.mode == "apply":
+        commands.append(f"git restore -- {quoted_paths}")
+    else:
+        commands.append("Re-run the same command with --apply only after reviewing the diff.")
+    return commands
+
+
 def _print_result(result: RunResult, show_tool_calls: bool) -> None:
     """Render the final CLI output."""
-    print(f"Mode: {result.mode}")
+    status_text = "SUCCESS"
+    mode_text = "APPLY" if result.mode == "apply" else "DRY-RUN"
+    print(f"Run status: {status_text} ({mode_text})")
     print(f"Goal: {result.goal}")
-    print()
-    print("Summary")
-    print(result.summary)
-    print()
-    print("Analysis")
-    print(result.analysis)
+    _print_block("Summary", result.summary)
+    _print_block("Analysis", result.analysis)
 
     if not result.evidence_sufficient and result.insufficient_evidence:
-        print()
-        print("Evidence gap")
-        print(result.insufficient_evidence)
+        _print_block("Evidence gap", result.insufficient_evidence)
 
-    print()
-    print("Files analyzed")
-    if result.files_analyzed:
-        for path in result.files_analyzed:
-            print(f"- {path}")
-    else:
-        print("- none reported")
+    _print_items(
+        "Analyzed files",
+        [path for path in sorted(result.files_analyzed)],
+        empty_text="- none reported",
+    )
 
     if show_tool_calls:
-        print()
-        print("Tool activity")
+        _print_section("Tool activity")
         if result.tool_calls:
             for call in result.tool_calls:
                 target_text = ", ".join(call.targets) if call.targets else "no targets reported"
@@ -179,20 +260,25 @@ def _print_result(result: RunResult, show_tool_calls: bool) -> None:
         else:
             print("- none reported")
 
+    change_title = "Applied changes" if result.mode == "apply" else "Proposed changes"
     if result.proposed_changes:
-        print()
-        print("Changes applied" if result.mode == "apply" else "Changes proposed")
-        for change in result.proposed_changes:
+        _print_section(change_title)
+        for change in sorted(result.proposed_changes, key=lambda item: item.path.as_posix()):
             print(f"- {change.path.as_posix()}: {change.reason}")
+    else:
+        _print_items(change_title, [], empty_text="- none")
 
     if result.diff_text:
-        print()
-        print("Diff")
+        _print_section("Diff preview")
         print(result.diff_text)
 
     if result.log_path:
-        print()
-        print(f"Run log: {result.log_path}")
+        _print_section("Run log")
+        print(result.log_path)
+
+    review_commands = _safe_review_commands(result)
+    if review_commands:
+        _print_items("Safe review", review_commands)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -215,12 +301,13 @@ def main(argv: list[str] | None = None) -> int:
         try:
             health = validate_runtime(config)
         except (RuntimeValidationError, FileNotFoundError, NotADirectoryError) as exc:
-            print(f"Error: {exc}", file=sys.stderr)
+            print(f"Doctor failed: {exc}", file=sys.stderr)
             return 2
-        print(f"Ollama: ok ({health.ollama_url})")
-        print(f"Model: ok ({health.model})")
-        print(f"Bridge: ok ({health.bridge_url})")
-        print(f"Bridge config path: {config.bridge_config_path}")
+        print("Doctor: ok")
+        print(f"- Ollama: {health.ollama_url}")
+        print(f"- Model: {health.model}")
+        print(f"- Bridge: {health.bridge_url}")
+        print(f"- Bridge config path: {config.bridge_config_path}")
         return 0
 
     if args.command == "bridge":
@@ -231,18 +318,21 @@ def main(argv: list[str] | None = None) -> int:
         try:
             if args.bridge_command == "write-config":
                 path = write_bridge_config(config, output_path=output_path)
-                print(path)
+                print(f"Bridge config written: {path}")
                 return 0
             if args.bridge_command == "start":
                 return start_bridge(config, output_path=output_path)
         except (RuntimeValidationError, FileNotFoundError, NotADirectoryError) as exc:
-            print(f"Error: {exc}", file=sys.stderr)
+            print(f"Bridge command failed: {exc}", file=sys.stderr)
             return 2
 
-    if args.command == "demo" and args.demo_command == "list":
-        for task in list_demo_tasks():
-            print(f"{task.name}: {task.goal}")
-        return 0
+    if args.command == "demo":
+        if args.demo_command == "list":
+            _print_demo_list()
+            return 0
+        if args.demo_command == "show":
+            print(_format_demo_task(get_demo_task(args.name)))
+            return 0
 
     config = AssistantConfig.from_env(
         project_root=_resolve_project_root(args.project_root)
@@ -261,7 +351,7 @@ def main(argv: list[str] | None = None) -> int:
         validate_runtime(config)
         result = orchestrator.run(request)
     except (AssistantRunError, RuntimeValidationError, FileNotFoundError, NotADirectoryError) as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        print(f"Run failed: {exc}", file=sys.stderr)
         return 2
     except Exception as exc:  # pragma: no cover - last-resort guard
         LOGGER.exception("Unexpected CLI failure")
